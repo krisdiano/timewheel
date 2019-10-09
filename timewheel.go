@@ -22,6 +22,7 @@ type timewheel struct {
 	root   level
 	tick   time.Duration
 	length int // the lenth of every layer is the same
+	
 	cnt    int // number of layers of time wheel
 	id     int
 
@@ -39,9 +40,9 @@ func New(length int, tick time.Duration) *timewheel {
 		sadd:   make(chan *entry, 1),
 		sdel:   make(chan int, 1),
 	}
-
 	tw.root.buffer = make([]*entry, length)
 	go tw.run()
+	
 	return tw
 }
 
@@ -62,6 +63,7 @@ func (tw *timewheel) pos(ts time.Time) (which int, index int) {
 		tem := bound[i].Add(time.Duration(int64(math.Pow(float64(tw.length), float64(i+2)))) * tw.tick)
 		bound = append(bound, tem)
 	}
+	
 	if which == 0 {
 		index = int((ts.Sub(now))/tw.tick) % tw.length
 	} else {
@@ -75,6 +77,7 @@ func (tw *timewheel) pos(ts time.Time) (which int, index int) {
 			index++
 		}
 	}
+	
 	return
 }
 
@@ -94,17 +97,17 @@ func (tw *timewheel) AddFunc(ts time.Time, fn func()) (id int, err error) {
 	}
 	tw.exist[tw.id] = struct{}{}
 	tw.id++
-
 	tw.sadd <- e
+	
 	return
 }
 
 func (tw *timewheel) addFunc(e *entry) (id int, err error) {
 	ts := e.ts
-
 	which, idx := tw.pos(ts)
 	wheel := &tw.root
 	base := tw.root.index
+	
 	if which != 0 {
 		base = 0
 		for which != 0 {
@@ -112,13 +115,14 @@ func (tw *timewheel) addFunc(e *entry) (id int, err error) {
 			wheel = wheel.next
 		}
 	}
+	
 	idx = (base + idx) % tw.length
 	if wheel.buffer[idx] == nil {
 		wheel.buffer[idx] = e
 		return e.id, nil
 	}
-
 	e.next, wheel.buffer[idx] = wheel.buffer[idx], e
+	
 	return
 }
 
