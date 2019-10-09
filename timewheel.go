@@ -30,7 +30,7 @@ type timewheel struct {
 	exist map[int]struct{}
 }
 
-// 创建则开始运行
+// At the same time, it runs. 
 func New(length int, tick time.Duration) *timewheel {
 	tw := &timewheel{
 		tick:   tick,
