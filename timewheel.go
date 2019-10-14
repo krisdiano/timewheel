@@ -5,13 +5,6 @@ import (
 	"time"
 )
 
-type entry struct {
-	id   int
-	ts   time.Time
-	fn   func()
-	next *entry
-}
-
 type level struct {
 	index  int
 	buffer []*entry
@@ -22,16 +15,16 @@ type timewheel struct {
 	root   level
 	tick   time.Duration
 	length int // the lenth of every layer is the same
-	
-	cnt    int // number of layers of time wheel
-	id     int
+
+	cnt int // number of layers of time wheel
+	id  int
 
 	sadd  chan *entry
 	sdel  chan int
-	exist map[int]struct{}
+	exist map[int]*entry
 }
 
-// At the same time, it runs. 
+// At the same time, it runs.
 func New(length int, tick time.Duration) *timewheel {
 	tw := &timewheel{
 		tick:   tick,
@@ -42,7 +35,7 @@ func New(length int, tick time.Duration) *timewheel {
 	}
 	tw.root.buffer = make([]*entry, length)
 	go tw.run()
-	
+
 	return tw
 }
 
@@ -63,7 +56,7 @@ func (tw *timewheel) pos(ts time.Time) (which int, index int) {
 		tem := bound[i].Add(time.Duration(int64(math.Pow(float64(tw.length), float64(i+2)))) * tw.tick)
 		bound = append(bound, tem)
 	}
-	
+
 	if which == 0 {
 		index = int((ts.Sub(now))/tw.tick) % tw.length
 	} else {
@@ -77,11 +70,11 @@ func (tw *timewheel) pos(ts time.Time) (which int, index int) {
 			index++
 		}
 	}
-	
+
 	return
 }
 
-func (tw *timewheel) AddFunc(ts time.Time, fn func()) (id int, err error) {
+func (tw *timewheel) AddFunc(ts time.Time, fn func()) (einfo EntryInfo, err error) {
 	if !ts.After(time.Now()) {
 		go fn()
 	}
@@ -93,12 +86,17 @@ func (tw *timewheel) AddFunc(ts time.Time, fn func()) (id int, err error) {
 	}
 
 	if tw.exist == nil {
-		tw.exist = make(map[int]struct{})
+		tw.exist = make(map[int]*entry)
 	}
-	tw.exist[tw.id] = struct{}{}
+
+	tw.exist[tw.id] = e
 	tw.id++
 	tw.sadd <- e
-	
+
+	einfo = EntryInfo{
+		Id:   e.id,
+		Next: e.nextHandler,
+	}
 	return
 }
 
@@ -107,7 +105,7 @@ func (tw *timewheel) addFunc(e *entry) (id int, err error) {
 	which, idx := tw.pos(ts)
 	wheel := &tw.root
 	base := tw.root.index
-	
+
 	if which != 0 {
 		base = 0
 		for which != 0 {
@@ -115,15 +113,24 @@ func (tw *timewheel) addFunc(e *entry) (id int, err error) {
 			wheel = wheel.next
 		}
 	}
-	
+
 	idx = (base + idx) % tw.length
 	if wheel.buffer[idx] == nil {
 		wheel.buffer[idx] = e
 		return e.id, nil
 	}
 	e.next, wheel.buffer[idx] = wheel.buffer[idx], e
-	
+
 	return
+}
+
+func (tw timewheel) AddWrappers(id int, wrappers ...func()) bool {
+	elem, ok := tw.exist[id]
+	if !ok {
+		return false
+	}
+	elem.middlewares = append(elem.middlewares, wrappers...)
+	return true
 }
 
 func (tw *timewheel) DelFunc(id int) {
@@ -148,7 +155,8 @@ func (tw *timewheel) run() {
 			for elem != nil {
 				_, ok := tw.exist[elem.id]
 				if ok {
-					go elem.fn()
+					delete(tw.exist, elem.id)
+					go elem.run()
 				}
 				elem = elem.next
 			}
